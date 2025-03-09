@@ -86,6 +86,5 @@ def download_excel(patient_id):
     except Exception as e:
         return jsonify({"error": f"Error fetching Excel file: {str(e)}"}), 500
 
-
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000, debug=True)  # ✅ Change port if needed
