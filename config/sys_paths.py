@@ -1,0 +1,1 @@
+# BASE_DIR = r"C:\frontend-project\GenePowerX-website\patient_files"  
