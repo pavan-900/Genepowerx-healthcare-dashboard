@@ -115,4 +115,5 @@ def download_excel(batch_name, patient_id):
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 8080))  # Get port from environment or default to 8080
+    app.run(host="0.0.0.0", port=port, debug=True)
