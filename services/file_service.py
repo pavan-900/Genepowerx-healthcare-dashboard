@@ -12,7 +12,7 @@ def get_batches_with_files():
 
     # ✅ Fetch all batch documents from MongoDB
     for batch in batch_collection.find({}, {"_id": 0, "batch_name": 1, "patients.patient_id": 1}):
-        batch_name = batch["batch_name"].upper()  # Normalize batch name
+        batch_name = batch["batch_name"] # Normalize batch name
         patient_ids = [p["patient_id"] for p in batch.get("patients", [])]  # Extract patient IDs
         batches[batch_name] = patient_ids  # Store batch data
 
