@@ -11,7 +11,7 @@ def get_batch_data():
     """
     Fetch all patient data from a batch stored in MongoDB.
     """
-    batch_name = request.args.get("batch_name", "").upper()  # Convert to uppercase
+    batch_name = request.args.get("batch_name", "") # Convert to uppercase
     if not batch_name:
         return jsonify({"error": "Missing batch_name"}), 400
 
@@ -23,7 +23,7 @@ def get_batch_data2():
     """
     Fetch alternative patient data format from MongoDB.
     """
-    batch_name = request.args.get("batch_name", "").upper()  # Convert to uppercase
+    batch_name = request.args.get("batch_name", "")# Convert to uppercase
     if not batch_name:
         return jsonify({"error": "Missing batch_name"}), 400
 
@@ -40,7 +40,7 @@ def serve_patient_file(batch_name, patient_id, file_type):
     file_map = {
         "pdf": f"{patient_id}.pdf",
         "consent": f"{patient_id}_Consent.pdf",
-        "blood_reports": f"{patient_id}_Blood_Reports.pdf"
+        "blood_reports": f"{patient_id}_Blood_work.pdf"
     }
 
     # Ensure valid file type
