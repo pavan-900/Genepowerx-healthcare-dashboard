@@ -7,7 +7,7 @@ from bson import ObjectId
 # Connect to MongoDB
 MONGO_URI = "mongodb+srv://pavanshankar9000:pavan%409000@project1.gfku5.mongodb.net/?retryWrites=true&w=majority"
 client = MongoClient(MONGO_URI)
-db = client["Finish_db"]
+db = client["test6_db"]
 fs = GridFS(db)
 
 json_process_bp = Blueprint('json_process', __name__)
