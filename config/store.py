@@ -5,7 +5,7 @@ from bson import ObjectId
 from mongoo_connection import db, fs  # ✅ Import MongoDB connection
 
 # Path to the new batch folder
-BASE_DIR = r"C:\frontend-project\GenePowerX-website\batch4_Jan_2025"
+BASE_DIR = r"C:\Users\pavan\OneDrive\Desktop\complete -project22\frontend-project\GenePowerX-website\Batch4_Jan_2025"
 
 def store_new_batch():
     """
