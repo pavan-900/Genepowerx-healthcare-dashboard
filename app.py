@@ -6,7 +6,6 @@ from routes.json_process_routes import json_process_bp
 import pandas as pd
 import gridfs
 import io
-import os
 from pymongo import MongoClient
 from datetime import datetime
 
@@ -23,18 +22,12 @@ client = MongoClient("mongodb+srv://pavanshankar:pavan%4096188@cluster0.mns8h.mo
 db = client["Finish_db"]
 fs = gridfs.GridFS(db)
 submitted_reports_collection = db["submitted_reports"]
-availability_collection = db["availability_status"]  # ✅ New collection for availability status
-
-
-BASE_REPORTS_FOLDER = "reports"
-os.makedirs(BASE_REPORTS_FOLDER, exist_ok=True)
-
+availability_collection = db["availability_status"]
 
 @app.route("/excel-download", methods=["POST"])
 def generate_excel():
     """
-    Generates an Excel file from received data, stores it inside batch folders,
-    uploads it to MongoDB GridFS, and saves the report in the submitted_reports collection.
+    Generates an Excel file from received data and directly uploads it to MongoDB GridFS.
     """
     try:
         json_data = request.get_json()
@@ -46,20 +39,19 @@ def generate_excel():
         if not headers or not data or not selected_patient:
             return jsonify({"error": "Invalid data received"}), 400
 
+        # ✅ Create DataFrame
         df = pd.DataFrame(data, columns=headers)
 
-        batch_folder = os.path.join(BASE_REPORTS_FOLDER, selected_batch)
-        os.makedirs(batch_folder, exist_ok=True)
-
-        file_name = f"{selected_patient}_Scoring_chart.xlsx"
-        file_path = os.path.join(batch_folder, file_name)
-
-        with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
+        # ✅ Save to in-memory buffer (instead of a file)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
             df.to_excel(writer, index=False)
+        output.seek(0)  # Move cursor to the start of the buffer
 
-        with open(file_path, "rb") as file:
-            file_id = fs.put(file, filename=file_name, patient_id=selected_patient, batch=selected_batch)
+        # ✅ Upload to MongoDB GridFS (No Local File Storage)
+        file_id = fs.put(output, filename=f"{selected_patient}_Scoring_chart.xlsx", patient_id=selected_patient, batch=selected_batch)
 
+        # ✅ Save report metadata in MongoDB
         report_entry = {
             "batch": selected_batch,
             "patient_id": selected_patient,
@@ -69,33 +61,19 @@ def generate_excel():
         submitted_reports_collection.insert_one(report_entry)
 
         return jsonify({
-            "message": "Excel file stored successfully & Report submitted",
-            "file_id": str(file_id),
-            "file_path": file_path
+            "message": "Excel file stored successfully in GridFS & Report submitted",
+            "file_id": str(file_id)
         }), 200
 
     except Exception as e:
         return jsonify({"error": f"Failed to generate Excel: {str(e)}"}), 500
 
-
 @app.route("/download-excel/<batch_name>/<patient_id>", methods=["GET"])
 def download_excel(batch_name, patient_id):
     """
-    Fetches the latest Excel file for a patient inside the batch folder or from MongoDB GridFS.
+    Fetches the latest Excel file for a patient from MongoDB GridFS.
     """
     try:
-        file_name = f"{patient_id}_Scoring_chart.xlsx"
-        batch_folder = os.path.join(BASE_REPORTS_FOLDER, batch_name)
-        local_file_path = os.path.join(batch_folder, file_name)
-
-        if os.path.exists(local_file_path):
-            return send_file(
-                local_file_path,
-                as_attachment=True,
-                download_name=file_name,
-                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
         file_doc = db.fs.files.find_one({"patient_id": patient_id, "batch": batch_name}, sort=[("uploadDate", -1)])
         if not file_doc:
             return jsonify({"error": "No Excel file found for this patient"}), 404
@@ -112,7 +90,6 @@ def download_excel(batch_name, patient_id):
 
     except Exception as e:
         return jsonify({"error": f"Error fetching Excel file: {str(e)}"}), 500
-
 
 @app.route("/update-availability", methods=["POST"])
 def update_availability():
@@ -139,7 +116,6 @@ def update_availability():
     except Exception as e:
         return jsonify({"error": f"Failed to update availability: {str(e)}"}), 500
 
-
 @app.route("/get-report-status", methods=["GET"])
 def get_report_status():
     """
@@ -162,7 +138,6 @@ def get_report_status():
         patient_reports.setdefault(patient_id, {})["available"] = entry["available"]
 
     return jsonify(patient_reports), 200
-
 
 @app.route("/submit-report", methods=["POST"])
 def submit_report():
