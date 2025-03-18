@@ -8,6 +8,7 @@ import gridfs
 import io
 import os
 from pymongo import MongoClient
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
@@ -18,55 +19,57 @@ app.register_blueprint(patient_bp)
 app.register_blueprint(json_process_bp)
 
 # ✅ Connect to MongoDB
-client = MongoClient("mongodb+srv://pavanshankar9000:pavan%409000@project1.gfku5.mongodb.net/?retryWrites=true&w=majority")
-db = client["test6_db"]
-fs = gridfs.GridFS(db)  # ✅ Initialize GridFS for file storage
+client = MongoClient("mongodb+srv://pavanshankar:pavan%4096188@cluster0.mns8h.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+db = client["Finish_db"]
+fs = gridfs.GridFS(db)
+submitted_reports_collection = db["submitted_reports"]
+availability_collection = db["availability_status"]  # ✅ New collection for availability status
 
-# ✅ Define base folder for saving Excel files locally
+
 BASE_REPORTS_FOLDER = "reports"
-os.makedirs(BASE_REPORTS_FOLDER, exist_ok=True)  # Ensure base folder exists
+os.makedirs(BASE_REPORTS_FOLDER, exist_ok=True)
+
 
 @app.route("/excel-download", methods=["POST"])
 def generate_excel():
     """
     Generates an Excel file from received data, stores it inside batch folders,
-    and uploads it to MongoDB GridFS.
+    uploads it to MongoDB GridFS, and saves the report in the submitted_reports collection.
     """
     try:
-        # ✅ Get JSON data from frontend
         json_data = request.get_json()
         headers = json_data.get("headers", [])
         data = json_data.get("data", [])
         selected_patient = json_data.get("selectedPatient", "").strip()
-        selected_batch = json_data.get("selectedBatch", "Batch4_Jan_2025").strip()
+        selected_batch = json_data.get("selectedBatch", "").strip()
 
         if not headers or not data or not selected_patient:
             return jsonify({"error": "Invalid data received"}), 400
 
-        # ✅ Convert JSON to DataFrame
-        df = pd.DataFrame(data, columns=[
-            "condition", "low", "lowToMild", "mild", "mildToModerate", "moderate", "moderateToHigh", "high",
-            "concern", "noMutation", "aiScore", "reason"
-        ])
-        df.columns = headers  # ✅ Rename columns based on headers
+        df = pd.DataFrame(data, columns=headers)
 
-        # ✅ Create batch folder if not exists
         batch_folder = os.path.join(BASE_REPORTS_FOLDER, selected_batch)
-        os.makedirs(batch_folder, exist_ok=True)  
+        os.makedirs(batch_folder, exist_ok=True)
 
-        # ✅ Save Excel file inside batch folder
         file_name = f"{selected_patient}_Scoring_chart.xlsx"
         file_path = os.path.join(batch_folder, file_name)
 
         with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
             df.to_excel(writer, index=False)
 
-        # ✅ Save file in MongoDB GridFS
         with open(file_path, "rb") as file:
             file_id = fs.put(file, filename=file_name, patient_id=selected_patient, batch=selected_batch)
 
+        report_entry = {
+            "batch": selected_batch,
+            "patient_id": selected_patient,
+            "report_data": data,
+            "timestamp": datetime.utcnow()
+        }
+        submitted_reports_collection.insert_one(report_entry)
+
         return jsonify({
-            "message": "Excel file stored successfully",
+            "message": "Excel file stored successfully & Report submitted",
             "file_id": str(file_id),
             "file_path": file_path
         }), 200
@@ -81,7 +84,6 @@ def download_excel(batch_name, patient_id):
     Fetches the latest Excel file for a patient inside the batch folder or from MongoDB GridFS.
     """
     try:
-        # ✅ First, check if the file exists locally
         file_name = f"{patient_id}_Scoring_chart.xlsx"
         batch_folder = os.path.join(BASE_REPORTS_FOLDER, batch_name)
         local_file_path = os.path.join(batch_folder, file_name)
@@ -94,12 +96,10 @@ def download_excel(batch_name, patient_id):
                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        # ✅ If not found locally, check in MongoDB GridFS
         file_doc = db.fs.files.find_one({"patient_id": patient_id, "batch": batch_name}, sort=[("uploadDate", -1)])
         if not file_doc:
             return jsonify({"error": "No Excel file found for this patient"}), 404
 
-        # ✅ Fetch file from GridFS
         file_id = file_doc["_id"]
         file_data = fs.get(file_id)
 
@@ -114,6 +114,86 @@ def download_excel(batch_name, patient_id):
         return jsonify({"error": f"Error fetching Excel file: {str(e)}"}), 500
 
 
+@app.route("/update-availability", methods=["POST"])
+def update_availability():
+    """
+    Updates patient availability status (Available = 🟠, Not Available = 🔴).
+    """
+    try:
+        json_data = request.get_json()
+        batch_name = json_data.get("batch_name", "").strip()
+        patient_id = json_data.get("patient_id", "").strip()
+        availability = json_data.get("availability", "").strip()
+
+        if not batch_name or not patient_id or availability not in ["available", "not_available"]:
+            return jsonify({"error": "Invalid data received"}), 400
+
+        availability_collection.update_one(
+            {"batch": batch_name, "patient_id": patient_id},
+            {"$set": {"available": availability == "available"}},
+            upsert=True
+        )
+
+        return jsonify({"message": "Availability status updated successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to update availability: {str(e)}"}), 500
+
+
+@app.route("/get-report-status", methods=["GET"])
+def get_report_status():
+    """
+    Fetches report submission and availability status from MongoDB.
+    """
+    batch_name = request.args.get("batch_name", "").strip()
+    if not batch_name:
+        return jsonify({"error": "Batch name is required"}), 400
+
+    patient_reports = {}
+    reports = submitted_reports_collection.find({"batch": batch_name})
+
+    for report in reports:
+        patient_id = report["patient_id"]
+        patient_reports[patient_id] = {"submitted": True}
+
+    availability_data = availability_collection.find({"batch": batch_name})
+    for entry in availability_data:
+        patient_id = entry["patient_id"]
+        patient_reports.setdefault(patient_id, {})["available"] = entry["available"]
+
+    return jsonify(patient_reports), 200
+
+
+@app.route("/submit-report", methods=["POST"])
+def submit_report():
+    """
+    Saves the submitted report details in MongoDB.
+    """
+    try:
+        json_data = request.get_json()
+        selected_patient = json_data.get("selectedPatient", "").strip()
+        selected_batch = json_data.get("selectedBatch", "").strip()
+        report_data = json_data.get("report_data", [])
+
+        if not selected_patient or not selected_batch or not report_data:
+            return jsonify({"error": "Invalid data received"}), 400
+
+        if "submitted_reports" not in db.list_collection_names():
+            db.create_collection("submitted_reports")
+
+        report_entry = {
+            "batch": selected_batch,
+            "patient_id": selected_patient,
+            "report_data": report_data,
+            "timestamp": datetime.utcnow()
+        }
+        inserted_id = db.submitted_reports.insert_one(report_entry).inserted_id
+
+        return jsonify({"message": "Report submitted successfully", "report_id": str(inserted_id)}), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to submit report: {str(e)}"}), 500
+
+
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 8080))  # Get port from environment or default to 8080
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(debug=True)
