@@ -22,12 +22,13 @@ client = MongoClient("mongodb+srv://pavanshankar:pavan%4096188@cluster0.mns8h.mo
 db = client["Finish_db"]
 fs = gridfs.GridFS(db)
 submitted_reports_collection = db["submitted_reports"]
-availability_collection = db["availability_status"]
+availability_collection = db["availability_status"]  # ✅ New collection for availability status
 
 @app.route("/excel-download", methods=["POST"])
 def generate_excel():
     """
-    Generates an Excel file from received data and directly uploads it to MongoDB GridFS.
+    Generates an Excel file from received data, uploads it to MongoDB GridFS,
+    and saves the report in the submitted_reports collection.
     """
     try:
         json_data = request.get_json()
@@ -39,19 +40,19 @@ def generate_excel():
         if not headers or not data or not selected_patient:
             return jsonify({"error": "Invalid data received"}), 400
 
-        # ✅ Create DataFrame
         df = pd.DataFrame(data, columns=headers)
 
-        # ✅ Save to in-memory buffer (instead of a file)
+        # ✅ Save the Excel file in memory (NOT local storage)
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
             df.to_excel(writer, index=False)
-        output.seek(0)  # Move cursor to the start of the buffer
+        output.seek(0)
 
-        # ✅ Upload to MongoDB GridFS (No Local File Storage)
-        file_id = fs.put(output, filename=f"{selected_patient}_Scoring_chart.xlsx", patient_id=selected_patient, batch=selected_batch)
+        # ✅ Upload to MongoDB GridFS
+        file_name = f"{selected_patient}_Scoring_chart.xlsx"
+        file_id = fs.put(output, filename=file_name, patient_id=selected_patient, batch=selected_batch)
 
-        # ✅ Save report metadata in MongoDB
+        # ✅ Store metadata in MongoDB
         report_entry = {
             "batch": selected_batch,
             "patient_id": selected_patient,
@@ -61,7 +62,7 @@ def generate_excel():
         submitted_reports_collection.insert_one(report_entry)
 
         return jsonify({
-            "message": "Excel file stored successfully in GridFS & Report submitted",
+            "message": "Excel file stored successfully in MongoDB & Report submitted",
             "file_id": str(file_id)
         }), 200
 
