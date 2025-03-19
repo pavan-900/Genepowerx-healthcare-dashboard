@@ -22,7 +22,31 @@ client = MongoClient("mongodb+srv://pavanshankar:pavan%4096188@cluster0.mns8h.mo
 db = client["Finish_db"]
 fs = gridfs.GridFS(db)
 submitted_reports_collection = db["submitted_reports"]
-availability_collection = db["availability_status"]  # ✅ New collection for availability status
+availability_collection = db["availability_status"]  # ✅ New collection for availability statusF
+@app.route("/upload-pdf", methods=["POST"])
+def upload_pdf():
+    """
+    Uploads PDF files for a patient inside a batch and stores them in MongoDB GridFS.
+    """
+    try:
+        batch_name = request.args.get("batch_name", "").strip()
+        patient_id = request.args.get("patient_id", "").strip()
+
+        if "pdfs" not in request.files:
+            return jsonify({"error": "No PDF file uploaded"}), 400
+
+        uploaded_files = request.files.getlist("pdfs")  # Multiple PDFs
+
+        file_ids = []
+        for file in uploaded_files:
+            file_id = fs.put(file, filename=file.filename, patient_id=patient_id, batch=batch_name)
+            file_ids.append(str(file_id))
+
+        return jsonify({"message": "PDFs uploaded successfully", "file_ids": file_ids}), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to upload PDFs: {str(e)}"}), 500
+
 @app.route("/excel-download", methods=["POST"])
 def generate_excel():
     """
