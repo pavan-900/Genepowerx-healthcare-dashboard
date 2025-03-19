@@ -23,53 +23,39 @@ db = client["Finish_db"]
 fs = gridfs.GridFS(db)
 submitted_reports_collection = db["submitted_reports"]
 availability_collection = db["availability_status"]  # ✅ New collection for availability status
-
 @app.route("/excel-download", methods=["POST"])
 def generate_excel():
     """
-    Generates an Excel file from received data, uploads it to MongoDB GridFS,
-    and saves the report in the submitted_reports collection.
+    Stores JSON data in MongoDB as an object but does NOT generate or store an Excel file.
     """
     try:
         json_data = request.get_json()
-        headers = json_data.get("headers", [])
-        data = json_data.get("data", [])
         selected_patient = json_data.get("selectedPatient", "").strip()
         selected_batch = json_data.get("selectedBatch", "").strip()
+        data = json_data.get("data", [])
 
-        if not headers or not data or not selected_patient:
+        if not selected_patient or not data:
             return jsonify({"error": "Invalid data received"}), 400
 
-        df = pd.DataFrame(data, columns=headers)
-
-        # ✅ Save the Excel file in memory (NOT local storage)
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            df.to_excel(writer, index=False)
-        output.seek(0)
-
-        # ✅ Upload to MongoDB GridFS
-        file_name = f"{selected_patient}_Scoring_chart.xlsx"
-        file_id = fs.put(output, filename=file_name, patient_id=selected_patient, batch=selected_batch)
-
-        # ✅ Store metadata in MongoDB
+        # ✅ Store JSON data in MongoDB (as an object)
         report_entry = {
             "batch": selected_batch,
             "patient_id": selected_patient,
             "report_data": data,
             "timestamp": datetime.utcnow()
         }
-        submitted_reports_collection.insert_one(report_entry)
+        inserted_id = submitted_reports_collection.insert_one(report_entry).inserted_id
 
         return jsonify({
-            "message": "Excel file stored successfully in MongoDB & Report submitted",
-            "file_id": str(file_id)
+            "message": "Report submitted successfully",
+            "document_id": str(inserted_id)
         }), 200
 
     except Exception as e:
-        return jsonify({"error": f"Failed to generate Excel: {str(e)}"}), 500
+        return jsonify({"error": f"Failed to submit report: {str(e)}"}), 500
 
-@app.route("/download-excel/<batch_name>/<patient_id>", methods=["GET"])
+
+@app.route("/f/<batch_name>/<patient_id>", methods=["GET"])
 def download_excel(batch_name, patient_id):
     """
     Fetches the latest Excel file for a patient from MongoDB GridFS.
@@ -139,6 +125,8 @@ def get_report_status():
         patient_reports.setdefault(patient_id, {})["available"] = entry["available"]
 
     return jsonify(patient_reports), 200
+
+
 
 @app.route("/submit-report", methods=["POST"])
 def submit_report():
